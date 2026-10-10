@@ -1,0 +1,11 @@
+<tool revision="1">
+  <info url="https://developer.nvidia.com/tensorrt"/>
+  <lib name="nvinfer"/>
+  <lib name="nvinfer_plugin"/>
+  <lib name="nvonnxparser"/>
+  <client>
+    <environment name="INCLUDE" default="$TOOL_BASE/include"/>
+    <environment name="LIBDIR" default="$TOOL_BASE/lib"/>
+  </client>
+  <use name="cuda"/>
+</tool>
