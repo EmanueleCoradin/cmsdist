@@ -1,0 +1,239 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 978f2b2..4cccbc4 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -137,42 +137,13 @@ message(STATUS "ORT_LIBRARY_DIR: ${ORT_LIBRARY_DIR}")
+ message(STATUS "ORT_INCLUDE_DIR: ${ORT_INCLUDE_DIR}")
+ 
+ # Add protobuf
+-if(WIN32)
+-  # Build protobuf as a static library, matching the project's static CRT.
+-  set(BUILD_SHARED_LIBS OFF)
+-endif()
+-
+-FetchContent_Declare(
+-  protobuf
+-  GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+-  GIT_TAG        v21.12  # Use a specific tag or commit
+-)
+-set(protobuf_BUILD_TESTS OFF CACHE INTERNAL "Disable tests")
+-set(protobuf_MSVC_STATIC_RUNTIME ON CACHE INTERNAL "Match the project's static MSVC runtime")
+-
+-# Cross-compilation needs a protoc executable that runs on the build host.
+-# Use -DPROTOC_EXECUTABLE=/path/to/host/protoc (matching protobuf v21.12).
+-if(PROTOC_EXECUTABLE)
+-  get_filename_component(PROTOC_EXECUTABLE "${PROTOC_EXECUTABLE}" ABSOLUTE)
+-  if(NOT EXISTS "${PROTOC_EXECUTABLE}" OR IS_DIRECTORY "${PROTOC_EXECUTABLE}")
+-    message(FATAL_ERROR "PROTOC_EXECUTABLE is not a file: ${PROTOC_EXECUTABLE}")
+-  endif()
+-  execute_process(COMMAND "${PROTOC_EXECUTABLE}" --version
+-    RESULT_VARIABLE _protoc_result OUTPUT_VARIABLE _protoc_version
+-    ERROR_VARIABLE _protoc_error OUTPUT_STRIP_TRAILING_WHITESPACE TIMEOUT 10)
+-  if(NOT _protoc_result STREQUAL "0")
+-    message(FATAL_ERROR "Host protoc cannot run: ${PROTOC_EXECUTABLE}: ${_protoc_error}")
+-  endif()
+-  set(protobuf_BUILD_PROTOC_BINARIES OFF CACHE BOOL "Use the supplied host protoc" FORCE)
+-endif()
+-FetchContent_MakeAvailable(protobuf)
+-
+-if(PROTOC_EXECUTABLE AND NOT TARGET protobuf::protoc)
+-  add_executable(protobuf::protoc IMPORTED GLOBAL)
+-  set_target_properties(protobuf::protoc PROPERTIES IMPORTED_LOCATION "${PROTOC_EXECUTABLE}")
+-  message(STATUS "Using host protoc: ${PROTOC_EXECUTABLE} (${_protoc_version})")
+-endif()
++# Use the Protobuf installation provided by CMSSW.
++find_package(absl CONFIG REQUIRED)
++find_package(utf8_range CONFIG REQUIRED)
++find_package(Protobuf CONFIG REQUIRED)
+ 
++message(STATUS "Using Protobuf: ${Protobuf_VERSION}")
++message(STATUS "Protobuf configuration: ${Protobuf_DIR}")
+ # Add ONNX
+ set(ONNX_USE_MSVC_STATIC_RUNTIME ON CACHE INTERNAL "Match the project's static MSVC runtime")
+ FetchContent_Declare(
+@@ -289,9 +260,9 @@ if(WIN32) # Windows
+ 
+ else()
+   set(TRT_LIBS
+-    "${TENSORRT_HOME}/libnvinfer.so.${TRT_MAJOR_VERSION}"
+-    "${TENSORRT_HOME}/libnvinfer_plugin.so.${TRT_MAJOR_VERSION}"
+-    "${TENSORRT_HOME}/libnvonnxparser.so.${TRT_MAJOR_VERSION}"
++    "${TENSORRT_HOME}/lib/libnvinfer.so.${TRT_MAJOR_VERSION}"
++    "${TENSORRT_HOME}/lib/libnvinfer_plugin.so.${TRT_MAJOR_VERSION}"
++    "${TENSORRT_HOME}/lib/libnvonnxparser.so.${TRT_MAJOR_VERSION}"
+   )
+   set(ORT_LIBS "${ORT_LIBRARY_DIR}/libonnxruntime.so")
+ endif()
+@@ -301,6 +272,7 @@ message(STATUS "TRT libs: ${TRT_LIBS}")
+ 
+ target_include_directories(onnxruntime_ep_tensorrt PRIVATE
+   "$<BUILD_INTERFACE:${ORT_INCLUDE_DIR}>"
++  "$<BUILD_INTERFACE:${ORT_INCLUDE_DIR}/onnxruntime>"
+   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>"
+   "$<BUILD_INTERFACE:${CUDAToolkit_INCLUDE_DIRS}>"
+   "$<BUILD_INTERFACE:${TENSORRT_HOME}/include>"
+diff --git a/src/onnx_ctx_model_helper.cc b/src/onnx_ctx_model_helper.cc
+index 2062273..6f8eef6 100644
+--- a/src/onnx_ctx_model_helper.cc
++++ b/src/onnx_ctx_model_helper.cc
+@@ -59,7 +59,7 @@ std::filesystem::path GetPathOrParentPathOfCtxModel(const std::string& ep_contex
+ 
+ bool IsWeightStrippedEngineCache(std::filesystem::path& engine_cache_path) {
+   // The weight-stripped engine cache has the naming of xxx.stripped.engine
+-  return engine_cache_path.stem().extension().u8string() == ".stripped";
++  return engine_cache_path.stem().extension() == ".stripped";
+ }
+ 
+ /*
+@@ -129,7 +129,7 @@ OrtStatus* EPContextNodeHelper::CreateEPContextNode(const std::string& engine_ca
+ 
+   RETURN_IF_ERROR(ort_api.CreateOpAttr("hardware_architecture", compute_capability.c_str(), compute_capability.size(),
+                                       ORT_OP_ATTR_STRING, &attributes[2]));
+-  const std::string onnx_model_filename = std::filesystem::u8path(onnx_model_path).filename().u8string();
++  const std::string onnx_model_filename = std::filesystem::u8path(onnx_model_path).filename().string();
+   RETURN_IF_ERROR(ort_api.CreateOpAttr("onnx_model_filename", onnx_model_filename.c_str(), onnx_model_filename.size(),
+                                       ORT_OP_ATTR_STRING, &attributes[3]));
+ 
+@@ -321,7 +321,7 @@ OrtStatus* EPContextNodeReader::GetEpContextFromGraph(const OrtGraph& graph) {
+                                   : std::filesystem::path(model_path).parent_path();
+     auto engine_cache_path = ctx_model_dir / std::filesystem::u8path(cache_path);
+ 
+-    std::string message = "[TensorRT EP] GetEpContextFromGraph engine_cache_path: " + engine_cache_path.u8string();
++    std::string message = "[TensorRT EP] GetEpContextFromGraph engine_cache_path: " + engine_cache_path.string();
+     Ort::ThrowOnError(ort_api.Logger_LogMessage(&logger_,
+                                                 OrtLoggingLevel::ORT_LOGGING_LEVEL_VERBOSE,
+                                                 message.c_str(), ORT_FILE, __LINE__, __FUNCTION__));
+@@ -333,9 +333,9 @@ OrtStatus* EPContextNodeReader::GetEpContextFromGraph(const OrtGraph& graph) {
+ 
+     // If the serialized refitted engine is present, use it directly without refitting the engine again
+     if (weight_stripped_engine_refit_) {
+-      const auto refitted_engine_cache_path = std::filesystem::u8path(GetWeightRefittedEnginePath(engine_cache_path.u8string()));
++      const auto refitted_engine_cache_path = std::filesystem::u8path(GetWeightRefittedEnginePath(engine_cache_path.string()));
+       if (std::filesystem::exists(refitted_engine_cache_path)) {
+-        std::string message = "[TensorRT EP] " + refitted_engine_cache_path.u8string() + " exists.";
++        std::string message = "[TensorRT EP] " + refitted_engine_cache_path.string() + " exists.";
+         Ort::ThrowOnError(ort_api.Logger_LogMessage(&logger_,
+                                                     OrtLoggingLevel::ORT_LOGGING_LEVEL_VERBOSE,
+                                                     message.c_str(), ORT_FILE, __LINE__, __FUNCTION__));
+@@ -346,28 +346,28 @@ OrtStatus* EPContextNodeReader::GetEpContextFromGraph(const OrtGraph& graph) {
+ 
+     if (!std::filesystem::exists(engine_cache_path)) {
+       std::string error_msg =
+-          "TensorRT EP can't find engine cache: " + engine_cache_path.u8string() +
++          "TensorRT EP can't find engine cache: " + engine_cache_path.string() +
+           ". Please make sure engine cache is in the same directory or sub-directory of context model.";
+       return ort_api.CreateStatus(ORT_EP_FAIL, error_msg.c_str());
+     }
+ 
+     std::ifstream engine_file(engine_cache_path, std::ios::binary | std::ios::in);
+-    RETURN_IF_NOT(engine_file.is_open(), "Cannot open EPContext engine cache: ", engine_cache_path.u8string());
++    RETURN_IF_NOT(engine_file.is_open(), "Cannot open EPContext engine cache: ", engine_cache_path.string());
+     engine_file.seekg(0, std::ios::end);
+     const auto file_size = engine_file.tellg();
+-    RETURN_IF_NOT(file_size > 0, "EPContext engine cache is empty or unreadable: ", engine_cache_path.u8string());
++    RETURN_IF_NOT(file_size > 0, "EPContext engine cache is empty or unreadable: ", engine_cache_path.string());
+     const size_t engine_size = static_cast<size_t>(file_size);
+     engine_file.seekg(0, std::ios::beg);
+     std::unique_ptr<char[]> engine_buf{new char[engine_size]};
+     RETURN_IF_NOT(engine_file.read(engine_buf.get(), static_cast<std::streamsize>(engine_size)),
+-                  "Cannot read EPContext engine cache: ", engine_cache_path.u8string());
++                  "Cannot read EPContext engine cache: ", engine_cache_path.string());
+     *(trt_engine_) = std::unique_ptr<nvinfer1::ICudaEngine>(trt_runtime_->deserializeCudaEngine(engine_buf.get(), engine_size));
+     if (!(*trt_engine_)) {
+-      std::string error_msg = "TensorRT EP could not deserialize engine from cache: " + engine_cache_path.u8string();
++      std::string error_msg = "TensorRT EP could not deserialize engine from cache: " + engine_cache_path.string();
+       return ort_api.CreateStatus(ORT_EP_FAIL, error_msg.c_str());
+     }
+ 
+-    message = "[TensorRT EP] DeSerialized " + engine_cache_path.u8string();
++    message = "[TensorRT EP] DeSerialized " + engine_cache_path.string();
+     Ort::ThrowOnError(ort_api.Logger_LogMessage(&logger_,
+                                                 OrtLoggingLevel::ORT_LOGGING_LEVEL_VERBOSE,
+                                                 message.c_str(), ORT_FILE, __LINE__, __FUNCTION__));
+@@ -377,7 +377,7 @@ OrtStatus* EPContextNodeReader::GetEpContextFromGraph(const OrtGraph& graph) {
+       RETURN_IF_NOT(node_attr.GetType() == OrtOpAttrType::ORT_OP_ATTR_STRING, "\'onnx_model_filename\' attribute should be string type.");
+       std::string onnx_model_filename;
+       RETURN_IF_ERROR(node_attr.GetValue<std::string>(onnx_model_filename));
+-      std::string weight_stripped_engine_cache = engine_cache_path.u8string();
++      std::string weight_stripped_engine_cache = engine_cache_path.string();
+       auto status = ep_.RefitEngine(onnx_model_filename,
+                                     onnx_model_folder_path_,
+                                     weight_stripped_engine_cache,
+@@ -410,7 +410,7 @@ OrtStatus* EPContextNodeReader::GetEpContextFromGraph(const OrtGraph& graph) {
+  */
+ std::string GetWeightRefittedEnginePath(std::string stripped_engine_cache) {
+   const auto stripped_engine_cache_path = std::filesystem::u8path(stripped_engine_cache);
+-  std::string refitted_engine_cache_path = stripped_engine_cache_path.stem().stem().u8string() + ".engine";
++  std::string refitted_engine_cache_path = stripped_engine_cache_path.stem().stem().string() + ".engine";
+   return refitted_engine_cache_path;
+ }
+ }  // namespace trt_ep
+diff --git a/src/tensorrt_execution_provider.cc b/src/tensorrt_execution_provider.cc
+index 7cd3b52..593342a 100644
+--- a/src/tensorrt_execution_provider.cc
++++ b/src/tensorrt_execution_provider.cc
+@@ -1066,7 +1066,7 @@ OrtStatus* ORT_API_CALL TensorrtExecutionProvider::GetCapabilityImpl(OrtEp* this
+     if (ep->engine_cache_enable_) {
+       const auto cache_directory = context_path.parent_path() /
+                                    std::filesystem::u8path(ep->engine_cache_relative_path_to_context_model_dir_);
+-      ep->cache_path_ = cache_directory.u8string();
++      ep->cache_path_ = cache_directory.string();
+       if (!ep->cache_path_.empty()) {
+         std::error_code error;
+         std::filesystem::create_directories(cache_directory, error);
+@@ -2206,7 +2206,7 @@ OrtStatus* TensorrtExecutionProvider::CreateNodeComputeInfoFromGraph(OrtEp* this
+     const std::string context_cache_ref = ep_context_embed_mode_
+         ? std::string{}
+         : (std::filesystem::u8path(engine_cache_relative_path_to_context_model_dir_) /
+-           std::filesystem::u8path(engine_cache_path).filename()).generic_u8string();
++           std::filesystem::u8path(engine_cache_path).filename()).generic_string();
+     RETURN_IF_ERROR(ep_ctx_node_helper->CreateEPContextNode(context_cache_ref,
+                                                            serialized_engine_pointer,
+                                                            serialized_engine_size,
+@@ -3069,7 +3069,7 @@ TensorrtExecutionProvider::TensorrtExecutionProvider(TensorrtExecutionProviderFa
+     engine_cache_relative_path_to_context_model_dir_ = cache_path_;
+ 
+     // Make cache_path_ to be the relative path of ep_context_file_path_
+-    cache_path_ = (GetPathOrParentPathOfCtxModel(ep_context_file_path_) / std::filesystem::u8path(cache_path_)).u8string();
++    cache_path_ = (GetPathOrParentPathOfCtxModel(ep_context_file_path_) / std::filesystem::u8path(cache_path_)).string();
+   }
+ 
+   // Hardware compatibility: pre-check on environment
+diff --git a/src/tensorrt_execution_provider_utils.h b/src/tensorrt_execution_provider_utils.h
+index 0ca5263..6b82103 100644
+--- a/src/tensorrt_execution_provider_utils.h
++++ b/src/tensorrt_execution_provider_utils.h
+@@ -884,7 +884,7 @@ std::string GetCachePath(const std::string& root, const std::string& name) {
+     return name;
+   } else {
+     const auto path = fs::u8path(root) / fs::u8path(name);
+-    return path.u8string();
++    return path.string();
+   }
+ }
+ 
+diff --git a/src/tensorrt_provider_factory.cc b/src/tensorrt_provider_factory.cc
+index 2850e93..dcb3408 100644
+--- a/src/tensorrt_provider_factory.cc
++++ b/src/tensorrt_provider_factory.cc
+@@ -214,13 +214,17 @@ OrtStatus* ORT_API_CALL TensorrtExecutionProviderFactory::GetSupportedDevicesImp
+       if (pci_bus_id != nullptr && pci_bus_id[0] != '\0') {
+         int resolved_ordinal = -1;
+         cudaError_t err = cudaDeviceGetByPCIBusId(&resolved_ordinal, pci_bus_id);
+-        if (err == cudaSuccess && resolved_ordinal >= 0 && resolved_ordinal < cuda_device_count) {
+-          current_device_id = resolved_ordinal;
++        if (err != cudaSuccess || resolved_ordinal < 0 || resolved_ordinal >= cuda_device_count) {
++          // The PCI device is not accessible through CUDA.
++          // Do not assign it an unrelated CUDA ordinal.
++          continue;
+         }
++
++        current_device_id = resolved_ordinal;
+       }
+     }
+ 
+-    // Fallback: if pci_bus_id was not available, use counter-based ordinal assignment.
++    // Use the sequential fallback only if PCI metadata is unavailable.
+     if (current_device_id < 0) {
+       current_device_id = cuda_device_index_fallback++;
+     }

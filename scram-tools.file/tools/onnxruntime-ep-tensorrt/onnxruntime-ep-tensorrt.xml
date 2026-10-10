@@ -1,0 +1,15 @@
+<tool revision="1">
+  <info url="https://github.com/onnxruntime/onnxruntime-ep-tensorrt"/>
+  <!-- Plugin is registered dynamically via ONNX Runtime's EP library API,
+       not linked directly into CMSSW modules. -->
+  <client>
+    <environment name="LIBDIR" default="$TOOL_BASE/lib"/>
+  </client>
+  <runtime name="LD_LIBRARY_PATH" value="$TOOL_BASE/lib" type="path"/>
+  <use name="onnxruntime"/>
+  <use name="tensorrt"/>
+  <use name="cuda"/>
+  <use name="onnx-cpp"/>
+  <use name="flatbuffers"/>
+  <use name="protobuf"/>
+</tool>

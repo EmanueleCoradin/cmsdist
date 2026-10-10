@@ -1,0 +1,76 @@
+diff --git a/onnxruntime/core/platform/linux/device_discovery.cc b/onnxruntime/core/platform/linux/device_discovery.cc
+--- a/onnxruntime/core/platform/linux/device_discovery.cc
++++ b/onnxruntime/core/platform/linux/device_discovery.cc
+@@ -12,6 +12,7 @@
+ #include <regex>
+ #include <string>
+ #include <string_view>
++#include <unordered_set>
+ 
+ #include "core/common/common.h"
+ #include "core/common/logging/logging.h"
+@@ -289,36 +290,52 @@
+   ORT_RETURN_IF_ERROR(DetectGpuSysfsPaths(gpu_sysfs_path_infos));
+ 
+   std::vector<OrtHardwareDevice> gpu_devices{};
+   gpu_devices.reserve(gpu_sysfs_path_infos.size());
++  std::unordered_set<std::string> discovered_pci_bus_ids{};
+ 
+   for (const auto& gpu_sysfs_path_info : gpu_sysfs_path_infos) {
+     OrtHardwareDevice gpu_device{};
+     if (auto status = GetGpuDeviceFromSysfs(gpu_sysfs_path_info, gpu_device); !status.IsOK()) {
+       LOGS_DEFAULT(WARNING) << MakeString("Failed to detect devices under ", gpu_sysfs_path_info.path, ": ", status.ErrorMessage());
+       continue;
+     }
++    // Remember DRM-discovered devices so PCI scanning cannot add duplicates.
++    // Keep the DRM entry when both paths find the same device: it also has card_idx metadata.
++    const auto& metadata = gpu_device.metadata.Entries();
++    if (const auto it = metadata.find("pci_bus_id"); it != metadata.end()) {
++      discovered_pci_bus_ids.insert(it->second);
++    }
+     gpu_devices.emplace_back(std::move(gpu_device));
+   }
+ 
+-  // If DRM-based detection found no GPUs, fall back to PCI bus scanning.
+-  // This handles containerized environments (e.g., AKS/Kubernetes) where the DRM
+-  // subsystem (nvidia-drm) may not be available but GPU PCI devices are still
+-  // exposed via /sys/bus/pci/devices/.
+-  if (gpu_devices.empty()) {
+-    LOGS_DEFAULT(VERBOSE) << "No GPUs found via /sys/class/drm. "
+-                          << "Falling back to PCI bus scanning via " << kSysfsPciDevicesPath << ".";
+-
+-    std::vector<pci_device_discovery::GpuPciPathInfo> gpu_pci_path_infos{};
+-    ORT_RETURN_IF_ERROR(pci_device_discovery::DetectGpuPciPaths(kSysfsPciDevicesPath, gpu_pci_path_infos));
+-
+-    gpu_devices.reserve(gpu_pci_path_infos.size());
++  // Always supplement DRM discovery with PCI scanning. A display controller
++  // (e.g., ASPEED) may have a DRM card while headless compute GPUs do not.
++  // Previously, the presence of any DRM GPU prevented PCI fallback entirely.
++  std::vector<pci_device_discovery::GpuPciPathInfo> gpu_pci_path_infos{};
++  const auto pci_status = pci_device_discovery::DetectGpuPciPaths(kSysfsPciDevicesPath, gpu_pci_path_infos);
++  if (!pci_status.IsOK()) {
++    // Preserve successfully discovered DRM devices if PCI enumeration fails.
++    if (gpu_devices.empty()) {
++      return pci_status;
++    }
++    LOGS_DEFAULT(WARNING) << "PCI GPU discovery failed: " << pci_status.ErrorMessage();
++  } else {
++    gpu_devices.reserve(gpu_devices.size() + gpu_pci_path_infos.size());
+ 
+     for (const auto& gpu_pci_path_info : gpu_pci_path_infos) {
++      if (!gpu_pci_path_info.pci_bus_id.empty() &&
++          discovered_pci_bus_ids.count(gpu_pci_path_info.pci_bus_id) != 0) {
++        continue;
++      }
++
+       OrtHardwareDevice gpu_device{};
+       if (auto status = pci_device_discovery::GetGpuDeviceFromPci(gpu_pci_path_info, gpu_device); !status.IsOK()) {
+         LOGS_DEFAULT(WARNING) << MakeString("Failed to detect devices under ", gpu_pci_path_info.path, ": ", status.ErrorMessage());
+         continue;
++      }
++      if (!gpu_pci_path_info.pci_bus_id.empty()) {
++        discovered_pci_bus_ids.insert(gpu_pci_path_info.pci_bus_id);
+       }
+       gpu_devices.emplace_back(std::move(gpu_device));
+     }
+   }

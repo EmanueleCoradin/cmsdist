@@ -1,0 +1,45 @@
+### RPM external onnxruntime-ep-tensorrt 1.0.0
+## INCLUDE cpp-standard
+## INCLUDE cuda-flags
+## INITENV +PATH LD_LIBRARY_PATH %{i}/lib
+
+# Pin the standalone EP to the same upstream commit as cms-changes.patch.
+%define branch main
+%define tag 6403f3cefe22c78313df90eca6b01fde54afa1ed
+Source: git+https://github.com/onnxruntime/%{n}.git?obj=%{branch}/%{tag}&export=%{n}-%{realversion}&output=/%{n}-%{realversion}.tgz
+
+Patch0: onnxruntime-ep-tensorrt/cms-changes
+
+BuildRequires: cmake ninja
+Requires: onnxruntime tensorrt cuda protobuf abseil-cpp onnx-cpp ms-gsl flatbuffers
+
+%prep
+%setup -q -n %{n}-%{realversion}
+%patch0 -p1
+
+%build
+rm -rf ../build
+
+cmake -S . -B ../build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_INSTALL_PREFIX="%{i}" \
+  -DCMAKE_INSTALL_LIBDIR=lib \
+  -DCMAKE_CXX_STANDARD=%{cms_cxx_standard} \
+  -DCMAKE_CUDA_COMPILER="${CUDA_ROOT}/bin/nvcc" \
+  -DCUDAToolkit_ROOT="${CUDA_ROOT}" \
+  -DCMAKE_CUDA_RUNTIME_LIBRARY=Shared \
+  -DCMAKE_CUDA_ARCHITECTURES="$(echo %{cuda_arch} | tr ' ' ';' | sed 's|;;*|;|g')" \
+  -DORT_HOME="${ONNXRUNTIME_ROOT}" \
+  -DTENSORRT_HOME="${TENSORRT_ROOT}" \
+  -DTRT_MAJOR_VERSION=11 \
+  -DProtobuf_DIR="${PROTOBUF_ROOT}/lib/cmake/protobuf" \
+  -DCMAKE_PREFIX_PATH="${ONNX_CPP_ROOT};${MS_GSL_ROOT};${FLATBUFFERS_ROOT};${PROTOBUF_ROOT};${ABSEIL_CPP_ROOT}" \
+  -Donnxruntime_ep_tensorrt_OBJECT_CACHE=OFF \
+  -Donnxruntime_ep_tensorrt_BUILD_TESTS=OFF \
+  -Donnxruntime_ep_tensorrt_INSTALL=ON \
+  -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+
+cmake --build ../build --parallel %{makeprocesses}
+
+%install
+cmake --install ../build
