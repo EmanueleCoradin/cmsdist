@@ -272,10 +272,10 @@ index 0ca5263..6b82103 100644
  }
  
 diff --git a/src/tensorrt_provider_factory.cc b/src/tensorrt_provider_factory.cc
-index 2850e93..dcb3408 100644
+index 2850e93..9aff98b 100644
 --- a/src/tensorrt_provider_factory.cc
 +++ b/src/tensorrt_provider_factory.cc
-@@ -214,13 +214,17 @@ OrtStatus* ORT_API_CALL TensorrtExecutionProviderFactory::GetSupportedDevicesImp
+@@ -214,13 +214,21 @@ OrtStatus* ORT_API_CALL TensorrtExecutionProviderFactory::GetSupportedDevicesImp
        if (pci_bus_id != nullptr && pci_bus_id[0] != '\0') {
          int resolved_ordinal = -1;
          cudaError_t err = cudaDeviceGetByPCIBusId(&resolved_ordinal, pci_bus_id);
@@ -283,7 +283,11 @@ index 2850e93..dcb3408 100644
 -          current_device_id = resolved_ordinal;
 +        if (err != cudaSuccess || resolved_ordinal < 0 || resolved_ordinal >= cuda_device_count) {
 +          // The PCI device is not accessible through CUDA.
-+          // Do not assign it an unrelated CUDA ordinal.
++          if (err == cudaErrorInvalidDevice) {
++	    // Clear the expected CUDA error before continuing.
++  	   (void)cudaGetLastError();
++	  }
++	  // Do not assign it an unrelated CUDA ordinal.
 +          continue;
          }
 +
@@ -296,3 +300,12 @@ index 2850e93..dcb3408 100644
      if (current_device_id < 0) {
        current_device_id = cuda_device_index_fallback++;
      }
+@@ -647,6 +655,8 @@ EXPORT_SYMBOL OrtStatus* CreateEpFactories(const char* registration_name, const
+       // This is distinct from the case where CUDA works but reports zero devices.
+       std::string err_msg = std::string("cudaGetDeviceCount failed: ") + cudaGetErrorString(cuda_err) +
+                             " (" + std::to_string(static_cast<int>(cuda_err)) + ")";
++      // Clear the CUDA runtime's per-thread last-error state.
++      (void)cudaGetLastError();
+       return ort_api->CreateStatus(ORT_RUNTIME_EXCEPTION, err_msg.c_str());
+     }
+ 

@@ -1,0 +1,14 @@
+diff --git a/src/tensorrt_execution_provider.cc b/src/tensorrt_execution_provider.cc
+--- a/src/tensorrt_execution_provider.cc
++++ b/src/tensorrt_execution_provider.cc
+@@ -2881,6 +2881,10 @@ TensorrtExecutionProvider::TensorrtExecutionProvider(TensorrtExecutionProviderFactory& factory,
+   info_ = TensorrtExecutionProviderInfo::FromProviderOptions(provider_options);
+   info_.has_trt_options = true;
+   device_id_ = info_.device_id;
++
++  // Use the caller-owned CUDA stream when one is provided via EP options.
++  external_stream_ = info_.has_user_compute_stream;
++  stream_ = static_cast<cudaStream_t>(info_.user_compute_stream);
+ 
+   // Generic session settings override only the corresponding legacy TRT option.
+   if (auto it = context_options.find("ep.context_enable"); it != context_options.end()) {

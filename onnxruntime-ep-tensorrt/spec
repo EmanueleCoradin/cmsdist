@@ -8,7 +8,8 @@
 %define tag 6403f3cefe22c78313df90eca6b01fde54afa1ed
 Source: git+https://github.com/onnxruntime/%{n}.git?obj=%{branch}/%{tag}&export=%{n}-%{realversion}&output=/%{n}-%{realversion}.tgz
 
-Patch0: onnxruntime-ep-tensorrt/cms-changes
+Patch0: onnxruntime-ep-tensorrt/cuda-device-fix 
+Patch1: onnxruntime-ep-tensorrt/tensorrt-external-stream-fix
 
 BuildRequires: cmake ninja
 Requires: onnxruntime tensorrt cuda protobuf abseil-cpp onnx-cpp ms-gsl flatbuffers
@@ -16,6 +17,7 @@ Requires: onnxruntime tensorrt cuda protobuf abseil-cpp onnx-cpp ms-gsl flatbuff
 %prep
 %setup -q -n %{n}-%{realversion}
 %patch0 -p1
+%patch1 -p1
 
 %build
 rm -rf ../build
