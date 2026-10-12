@@ -1,0 +1,14 @@
+diff --git a/src/tensorrt_execution_provider.cc b/src/tensorrt_execution_provider.cc
+--- a/src/tensorrt_execution_provider.cc
++++ b/src/tensorrt_execution_provider.cc
+@@ -4116,8 +4116,8 @@ OrtStatus* TRTEpEpContextNodeComputeInfo::ComputeImpl(OrtNodeComputeInfo* this_ptr, void* compute_state,
+   Ort::ThrowOnError(ep.ort_api.KernelContext_GetGPUComputeStream(kernel_context, &cuda_stream));
+   cudaStream_t stream = static_cast<cudaStream_t>(cuda_stream);
+ 
+-  // cudaStream_t stream;
+-  cudaStreamCreate(&stream);
++  // Use the ORT compute stream, including a caller-owned Alpaka stream.
++  // Creating another stream here breaks ordering and leaks it on every run.
+ 
+   // Check before using trt_engine
+   if (trt_engine == nullptr) {

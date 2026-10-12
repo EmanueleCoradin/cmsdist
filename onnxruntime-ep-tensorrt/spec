@@ -10,6 +10,7 @@ Source: git+https://github.com/onnxruntime/%{n}.git?obj=%{branch}/%{tag}&export=
 
 Patch0: onnxruntime-ep-tensorrt/cuda-device-fix 
 Patch1: onnxruntime-ep-tensorrt/tensorrt-external-stream-fix
+Patch2: onnxruntime-ep-tensorrt/epcontext-stream-fix
 
 BuildRequires: cmake ninja
 Requires: onnxruntime tensorrt cuda protobuf abseil-cpp onnx-cpp ms-gsl flatbuffers
@@ -18,6 +19,7 @@ Requires: onnxruntime tensorrt cuda protobuf abseil-cpp onnx-cpp ms-gsl flatbuff
 %setup -q -n %{n}-%{realversion}
 %patch0 -p1
 %patch1 -p1
+%patch2 -p1
 
 %build
 rm -rf ../build
