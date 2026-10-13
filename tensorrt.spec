@@ -19,11 +19,13 @@ tar --zstd -xf %{SOURCE0} --strip-components=1
 # No compilation is necessary.
 
 %install
-mkdir -p %{i}
+mkdir -p %{i}/include
+mkdir -p %{i}/lib
 
-cp -a include %{i}/
-cp -a lib     %{i}/
-cp -a cmake   %{i}/
-cp -a bin     %{i}/
-cp -a doc     %{i}/
+# TensorRT headers are needed to compile the standalone EP.
+cp -a include/. %{i}/include/
 
+# Full runtime, without builder resources.
+cp -a lib/libnvinfer.so*        %{i}/lib/
+cp -a lib/libnvinfer_plugin.so* %{i}/lib/
+cp -a lib/libnvonnxparser.so*   %{i}/lib/
